@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=../../../../docs/schemas/knowledge-topic.schema.json
+id: events
+title: Payment events to products
+domain: payments
+as_of: "2026-11-04"
+check_prefix: EVT
+
+how_it_works: |
+  Products (business filings, names, STRR, PPR and MHR, express checkout partners) release a filing when
+  they get a payment event on their queue topic. The topic is chosen by the invoice's product; a product
+  with no topic gets no event, and some products are skipped on purpose.
+
+  When the event is sent depends on the payment method:
+  - **PAD, EFT, EJV, routing slip and BCOL:** when the invoice is created, before any money moves.
+  - **Online banking:** when the settlement row that pays the invoice is applied.
+  - **Card:** when the transaction completes (card payments topic).
+  - **Express checkout PAD:** held until the invoice has been PAID for 3 business days, then sent by a
+    daily job, which marks the link as notified. An invoice reversed in the meantime is skipped.
+  Refunds send a reversal event only if a feature flag turns that on; otherwise products aren't told.
+
+  Known quirks today:
+  - Outside card payments, a failed publish is only logged. Nothing records it and nothing retries it, so
+    the product never releases the filing.
+  - The online banking event is sent while the settlement row is being applied, before pay-db commits. If
+    the file's changes roll back, the product has already been told the invoice is paid.
+  - If an express checkout partner has no topic configured, nothing is sent but the link is still marked
+    as notified.
+
+checks:
+  - id: EVT-01
+    title: Failed payment events are sent again
+    check: Every payment event whose publish failed is later sent successfully for the same invoice.
+    why: The customer paid but the product never releases the filing, and nobody is told.
+    causes:
+      - cause: "The publish failed on a path with no retry (anything but card payments)."
+        confirm: "A queue publish failure logged for the invoice's payment event, and no later successful publish for it."
+
+  - id: EVT-02
+    title: Held express checkout events go out
+    check: No express checkout PAD invoice stays PAID past the hold period plus one daily run without being marked notified.
+    why: The partner never releases the filing.
+    causes:
+      - cause: "The daily job's publish failed for the invoice."
+        confirm: "An express checkout notify job error for the invoice."

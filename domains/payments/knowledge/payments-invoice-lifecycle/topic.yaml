@@ -1,0 +1,68 @@
+# yaml-language-server: $schema=../../../../docs/schemas/knowledge-topic.schema.json
+id: invoice-lifecycle
+title: Invoice lifecycle (creation, CFS invoices, references)
+domain: payments
+as_of: "2026-11-04"
+check_prefix: INV
+
+how_it_works: |
+  A product (filing, search, etc.) creates an invoice through pay-api for the account's payment method.
+  Its first status depends on the method: PAD, EFT, EJV and routing slip (INTERNAL) invoices start
+  APPROVED; online banking and card invoices start CREATED. Card payments are in the card payments topic
+  and EJV in the CGI topic.
+
+  A nightly job creates the CFS invoices:
+  - **PAD:** all of an account's APPROVED invoices without a reference are rolled up into one CFS invoice.
+    Each gets an ACTIVE reference to that one CFS invoice number, and the customer is emailed the total.
+  - **EFT:** one CFS invoice per invoice, ACTIVE reference.
+  - **Online banking:** one CFS invoice per CREATED invoice; the invoice becomes SETTLEMENT_SCHED until the
+    customer pays through their bank.
+  - **Routing slip:** a CFS invoice is created and the slip's receipt applied straight away; the invoice
+    becomes PAID. Routing slip invoices with a refund requested are cancelled in CFS and become REFUNDED.
+  The job skips an account whose CFS account isn't usable (PAD and EFT: anything but ACTIVE or INACTIVE,
+  e.g. frozen or pending activation), online banking for products that don't allow it, and express
+  checkout invoices not yet claimed. If CFS returns an error, the job checks whether the invoice was
+  created anyway and uses it if the totals match; otherwise it emails support and tries again the next
+  night.
+
+  Invoices are then settled from CAS settlement files (settlement topic) or EFT credit (EFT topic). A
+  reference is ACTIVE while the invoice waits for CFS, COMPLETED when settled, and CANCELLED when the CFS
+  invoice is reversed or replaced (e.g. by a consolidated invoice after an NSF).
+
+  Known quirks today:
+  - Online banking invoices nobody pays stay SETTLEMENT_SCHED, with an open CFS invoice, indefinitely.
+    Nothing expires them; they are cleaned up by script.
+  - If CFS already has an invoice under the number with a different total, the job fails for that account
+    every night until someone intervenes.
+  - Code that expects one ACTIVE reference per invoice errors if there are two; with several COMPLETED
+    references it uses the newest.
+
+checks:
+  - id: INV-01
+    title: Every invoice reaches CFS
+    check: No PAD, EFT, online banking or routing slip invoice is still waiting for its CFS invoice (APPROVED or CREATED, no ACTIVE or COMPLETED reference) after the nightly job has run.
+    why: CAS never bills the customer, and nothing can settle the invoice.
+    causes:
+      - cause: "The account's CFS account isn't usable (frozen, pending, or pending PAD activation), so the job skips it."
+        confirm: "The account's CFS account for the payment method isn't ACTIVE or INACTIVE."
+      - cause: "CFS rejected or didn't answer the create call."
+        confirm: "A CFS create invoice job failure for the account on the night the invoice was due to go."
+      - cause: "CFS already has the invoice number with a different total."
+        confirm: "CFS returns an invoice for that number whose total differs from pay-db's."
+      - cause: "Online banking isn't allowed for the product."
+        confirm: "The invoice's product doesn't allow online banking."
+      - cause: "It is an express checkout invoice not yet claimed by an account (by design)."
+        confirm: "An unclaimed express checkout link for the invoice."
+
+  - id: INV-02
+    title: Online banking invoices are paid or cancelled
+    check: No online banking invoice stays SETTLEMENT_SCHED with nothing paid in CFS.
+    why: The filing waits forever and CAS carries an open receivable; today they are found and cleaned up by script.
+    causes:
+      - cause: "The customer never paid."
+        confirm: "CFS amount_due on the invoice's CFS invoice equals its total."
+
+  - id: INV-03
+    title: One live reference per invoice
+    check: No invoice has more than one ACTIVE reference, or more than one non-consolidated COMPLETED reference.
+    why: Settlement, refunds and payments can act on the wrong CFS invoice, or fail outright.

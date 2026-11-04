@@ -1,0 +1,91 @@
+# yaml-language-server: $schema=../../../../docs/schemas/knowledge-topic.schema.json
+id: refunds-credit-memos
+title: Refunds and credit memos
+domain: payments
+as_of: "2026-11-02"
+check_prefix: REF
+
+how_it_works: |
+  Staff, or a product's system user, request a refund on one invoice: full, or partial by line (fee or
+  service fee). A request is refused if the product doesn't allow refunds, if the invoice already has a
+  refund date, or if another refund on it is pending or approved. So an invoice is refunded once.
+
+  Which invoice statuses can be fully refunded, and whether partial refunds are allowed, is set per payment
+  method. Today: PAD, EFT and EJV can be fully refunded before payment (APPROVED) or after (PAID); other
+  methods only when PAID; card payments through the old CC method can't be refunded. Partial refunds are
+  allowed for PAD, online banking, DIRECT_PAY (card), EFT and EJV, and only on PAID invoices.
+
+  If the product requires approval and the requester isn't a system user, the refund waits as
+  PENDING_APPROVAL and the product's refund staff are emailed. Someone other than the requester approves
+  it, or declines it with a reason. System requests and products without approval go straight through.
+
+  What a completed refund does depends on the payment method:
+  - **PAD and online banking:** a credit memo is created in CFS for the refund amount; the money stays on
+    the account as credit, it never goes back to the bank. pay-db gets a `credits` row for the credit memo
+    (linked to the refunded invoice) and the account's PAD or OB credit total goes up; the customer is
+    emailed. A full refund makes the invoice CREDITED; a partial one leaves it PAID. A PAD invoice not yet
+    sent to CFS for payment (APPROVED with no ACTIVE reference) is simply CANCELLED.
+  - **DIRECT_PAY (card):** the refund is sent to PayBC straight away. A full refund makes the invoice
+    REFUND_REQUESTED; a job then polls PayBC and sets the invoice and payment REFUNDED when PayBC has paid
+    it out, and records when the refund posted to the GL. A rejected or declined refund is stored as an
+    error on the refund and the invoice stays REFUND_REQUESTED. A partial refund leaves the invoice PAID.
+  - **EFT:** a full refund goes through the EFT refund process for the invoice's EFT credit links, and
+    partner disbursements are reversed; a partial one becomes a credit memo as for PAD. Consolidated EFT invoices can't be refunded.
+  - **EJV:** refunded by the journal voucher job; the invoice becomes REFUND_REQUESTED (CANCELLED if the
+    journal hasn't started, REFUNDED at once for unbillable accounts).
+  - **BC Online (DRAWDOWN):** the payment becomes REFUNDED and the refund is completed in BC Online; the
+    invoice is REFUND_REQUESTED. A job compares refund totals with BC Online.
+  - **Routing slip (INTERNAL):** the amount goes back onto the routing slip's remaining amount (a COMPLETE
+    slip becomes ACTIVE again); the invoice is REFUND_REQUESTED.
+
+  The refund amount is stored on the invoice, and `refund_date` is set once the invoice reaches a final
+  refunded state (REFUNDED, CREDITED, CANCELLED, or PAID after a partial refund).
+
+  Finance can also record a **manual refund** (they've already sent a cheque): the invoice becomes
+  MANUALLY_REFUNDED with refund = paid; nothing is sent to CFS.
+
+  A credit memo is then used by CAS: when CAS applies it to an invoice, the settlement file carries a CMAP
+  row (see settlement reconciliation), and the credit's remaining amount follows CFS. A PAD invoice refunded
+  to a credit memo before a returned debit is not penalised (see NSF handling).
+
+  Known quirks today:
+  - Partners are told about a reversal only when a feature flag is on, and never for CSO, RPT and VS.
+  - The credit notification email and the refund staff emails are sent in the background; a failure is
+    only logged.
+  - A card refund rejected by PayBC raises no alert beyond a log line and the stored error.
+
+checks:
+  - id: REF-01
+    title: Refund never exceeds what was charged
+    check: An invoice's refund amount is not more than its total, and each partial refund line is not more than that line's fee or service fee.
+    why: Money returned that was never paid.
+
+  - id: REF-02
+    title: One refund per invoice
+    check: Each invoice has at most one refund that is pending approval, approved or not requiring approval.
+    why: A customer refunded twice.
+
+  - id: REF-03
+    title: Every credit memo refund has its credit
+    check: Every PAD, online banking or EFT invoice refunded to a credit memo has exactly one credits row created from it, for the refund amount.
+    why: The customer's credit is missing in pay-db, so they can't use it and NSF handling can't see the refund.
+
+  - id: REF-04
+    title: Card refunds complete
+    check: No DIRECT_PAY invoice stays REFUND_REQUESTED past the detector's threshold, and no refund has a stored PayBC error without staff follow-up.
+    why: The customer is told they were refunded but the money never arrives.
+    causes:
+      - cause: "PayBC rejected or declined the refund."
+        confirm: "The refund has a stored PayBC error."
+      - cause: "PayBC hasn't paid the refund out yet."
+        confirm: "No stored error, and PayBC shows the refund pending."
+
+  - id: REF-05
+    title: Approvals are made by someone else
+    check: Every approved refund was decided by someone other than its requester, and none waits in PENDING_APPROVAL past the detector's threshold.
+    why: Separation of duties broken, or customers waiting on a forgotten request.
+
+  - id: REF-06
+    title: Refund state is consistent
+    check: An invoice has refund_date set exactly when it is REFUNDED, CREDITED, CANCELLED or MANUALLY_REFUNDED, or PAID with a completed partial refund.
+    why: Reports and the customer's transaction history show the wrong refund state.

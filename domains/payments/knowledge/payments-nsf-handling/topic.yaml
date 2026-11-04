@@ -1,0 +1,94 @@
+# yaml-language-server: $schema=../../../../docs/schemas/knowledge-topic.schema.json
+id: nsf-handling
+title: NSF handling (PAD returns)
+domain: payments
+as_of: "2026-11-02"
+check_prefix: NSF
+
+how_it_works: |
+  A returned PAD debit arrives as a settlement row (`PADR`/`PAYR`, or Not PAID; reason code e.g. 901
+  Insufficient funds). pay-queue then:
+
+  1. Ignores it if the CFS invoice number already has a FAILED payment or an NSF record.
+  2. Takes the invoices with a COMPLETED reference on the number. Invoices fully refunded to a credit memo
+     that is still unused are left alone (CAS applies that credit memo instead). If every invoice was
+     refunded this way, nothing else happens.
+  3. Sets the PAD CFS account to FREEZE, sets `has_nsf_invoices`, tells CFS to stop PAD, and sends a lock
+     message to auth, which sets the account to `NSF_SUSPENDED`.
+  4. Puts the remaining invoices back to unpaid: reference ACTIVE, receipt removed, SETTLEMENT_SCHED,
+     paid 0.
+  5. If the account wasn't already frozen, creates a credit card NSF fee invoice with a reference on the
+     same CFS invoice number, an NSF record on the fee invoice, and an adjustment in CFS for the fee (seen
+     later as an `ADJS` row). If it was already frozen, no second fee or NSF record.
+
+  The NSF record sits on the fee invoice, so NSF is found through the CFS invoice number, not the original
+  invoice ID.
+
+  The customer then pays the balance, fee included, by credit card through pay-api. That settles the
+  invoices, clears `has_nsf_invoices`, reactivates PAD and sends an unlock message to auth.
+
+  Known quirks today:
+  - If CAS instead reports the number fully paid through a settlement row (e.g. a credit memo applied with
+    `CMAP`), pay-db settles nothing (the fee invoice is a credit card invoice; see settlement
+    reconciliation), and nothing clears the freeze or unlocks the account.
+  - Lock and unlock messages to auth are sent once; a failure is logged and never retried.
+  - A genuine second return on the same CFS invoice number is ignored by step 1.
+  - An invoice refunded for less than its total gets the full NSF treatment.
+
+checks:
+  - id: NSF-01
+    title: One NSF per CFS invoice number
+    check: At most one NSF record per CFS invoice number.
+    why: A customer charged two NSF fees for one returned debit.
+    causes:
+      - cause: "The same returned debit arrived in two settlement files."
+        confirm: "Identical reversal rows in two files for the number."
+
+  - id: NSF-02
+    title: No NSF on refunded invoices
+    check: No NSF record on a CFS invoice number whose invoices were all refunded to credit memos that were unused when the return arrived.
+    why: The customer is frozen and charged a fee although they were owed nothing.
+    causes:
+      - cause: "The return was processed before the refund check existed in pay-queue."
+        confirm: "The NSF record is dated before the refund check was deployed."
+      - cause: "The refund was partial, which today gets the full NSF treatment."
+        confirm: "The invoice's refund is less than its total."
+
+  - id: NSF-03
+    title: Return reverts the invoices
+    check: After a returned PAD debit, each affected invoice not refunded is unsettled with paid 0, unless a later payment settled it.
+    within: P1D
+    why: pay-db shows paid invoices the bank took back.
+    causes:
+      - cause: "The account was already frozen and an older pay-queue dropped the return."
+        confirm: "The invoice is still PAID and the file was applied before the fix merged on 2026-10-27 was deployed."
+
+  - id: NSF-04
+    title: One fee invoice per NSF
+    check: Every NSF record has exactly one credit card fee invoice on the same CFS invoice number.
+    why: Fee missing or charged twice.
+
+  - id: NSF-05
+    title: pay and auth agree on the lock
+    check: has_nsf_invoices or has_overdue_invoices is set exactly when the auth org is NSF_SUSPENDED.
+    why: A customer locked out after paying, or a locked account that auth shows as active.
+    causes:
+      - cause: "The lock or unlock message from pay failed to send."
+        confirm: "A publish failure logged for the account when pay changed its state."
+      - cause: "auth-queue dropped or failed the message."
+        confirm: "An auth-queue error for the account, such as an unknown org, and no publish failure in pay."
+      - cause: "Staff changed the status in auth."
+        confirm: "auth's status changed after pay's last change, with no matching pay event."
+      - cause: "The message is still in flight."
+        confirm: "pay changed state within the last few minutes."
+
+  - id: NSF-06
+    title: No account frozen with nothing owing
+    check: No account has has_nsf_invoices set when CFS amount_due is 0 on every CFS invoice number with an NSF record for it.
+    within: P1D
+    why: The account stays locked although the customer owes nothing.
+    causes:
+      - cause: "CAS reported the balance paid through a settlement row, which today never unlocks the account."
+        confirm: "CFS amount_due 0 with no pay-api payment for the NSF balance."
+      - cause: "The CC guard stopped the invoices from settling."
+        confirm: "SET-02 fails for the number."
