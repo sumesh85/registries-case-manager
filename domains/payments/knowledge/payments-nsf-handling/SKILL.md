@@ -1,6 +1,6 @@
 ---
 name: payments-nsf-handling
-description: "Payments (sbc-pay) knowledge: what happens when a PAD payment is returned (freeze, lock, NSF fee) and what clears it, and checks NSF-01 to NSF-06 with their known causes. Use for a case whose check starts with NSF-, or for frozen or NSF-suspended accounts."
+description: "Payments (sbc-pay) knowledge: what happens when a PAD payment is returned (freeze, lock, NSF fee) and what clears it, and its checks with their known causes. Use for a case on one of these checks, or for frozen or NSF-suspended accounts."
 ---
 
 # NSF handling (PAD returns)

@@ -1,9 +1,8 @@
 # yaml-language-server: $schema=../../../../docs/schemas/knowledge-topic.schema.json
 id: events
-title: Payment events to products
+title: Payment events and customer emails
 domain: payments
 as_of: "2026-11-04"
-check_prefix: EVT
 
 how_it_works: |
   Products (business filings, names, STRR, PPR and MHR, express checkout partners) release a filing when
@@ -18,24 +17,26 @@ how_it_works: |
     daily job, which marks the link as notified. An invoice reversed in the meantime is skipped.
   Refunds send a reversal event only if a feature flag turns that on; otherwise products aren't told.
 
+  Most customer emails go the same way, as messages on the account mailer queue: receipts, online banking
+  payment notices, PAD invoice notices and statement reminders. (Lock and unlock notices are sent by
+  auth.)
+
   Known quirks today:
   - Outside card payments, a failed publish is only logged. Nothing records it and nothing retries it, so
-    the product never releases the filing.
-  - The online banking event is sent while the settlement row is being applied, before pay-db commits. If
-    the file's changes roll back, the product has already been told the invoice is paid.
-  - If an express checkout partner has no topic configured, nothing is sent but the link is still marked
-    as notified.
+    the product never releases the filing, or the customer never gets the email.
+  - The online banking event is sent while its settlement row is being applied, before that row is
+    committed. If the row then fails, the product has been told about a payment pay-db didn't record.
 
 checks:
-  - id: EVT-01
-    title: Failed payment events are sent again
-    check: Every payment event whose publish failed is later sent successfully for the same invoice.
-    why: The customer paid but the product never releases the filing, and nobody is told.
+  - id: failed-event-resent
+    title: Failed events and emails are sent again
+    check: Every payment event to a product, and every customer email message, whose publish failed is later sent successfully for the same invoice or account.
+    why: The customer paid but the product never releases the filing, or the customer never gets their receipt or notice, and nobody is told.
     causes:
-      - cause: "The publish failed on a path with no retry (anything but card payments)."
-        confirm: "A queue publish failure logged for the invoice's payment event, and no later successful publish for it."
+      - cause: "The publish failed on a path with no retry (anything but card payment events)."
+        confirm: "A queue publish failure logged for the invoice's payment event or the account's email message, and no later successful publish for it."
 
-  - id: EVT-02
+  - id: held-event-sent
     title: Held express checkout events go out
     check: No express checkout PAD invoice stays PAID past the hold period plus one daily run without being marked notified.
     why: The partner never releases the filing.

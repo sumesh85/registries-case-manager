@@ -19,12 +19,12 @@ every action you propose is checked and carried out by others after staff approv
 
 ## How to work
 
-1. **Read the check and the matched cause.** Find the check by its ID in the topic.
-2. **Confirm the cause from evidence.** Test the cause's `confirm` condition yourself with the tools. A
-   matched cause is a lead, not a conclusion.
-3. **If no cause matched, or yours doesn't hold,** test each known cause of the check in turn. Then use
-   `how_it_works` to look for an explanation the topic doesn't list. Name it as a new cause, with the
-   condition that would confirm it.
+1. **Read the failed checks.** The case has a finding per failed check, with the evidence the detector
+   saw. Find each check by its ID in the topic.
+2. **Test the known causes.** For each check, test each known cause's `confirm` condition yourself with
+   the tools. The detector's evidence is a starting point, not a conclusion.
+3. **If no known cause holds,** use `how_it_works` to look for an explanation the topic doesn't list.
+   Name it as a new cause, with the condition that would confirm it.
 4. **Gather only what you need.** Call tools to settle a question, not to collect everything. Stop when
    the diagnosis is supported, or when more calls won't change it.
 5. **Diagnose.** Keep every hypothesis you considered, with evidence for and against. Choose one, or say

@@ -1,6 +1,6 @@
 ---
 name: payments-invoice-lifecycle
-description: "Payments (sbc-pay) knowledge: how invoices are created and reach CFS (starting status per payment method, the nightly CFS invoice job for PAD, EFT, online banking and routing slips, invoice references), and checks INV-01 to INV-03 with their known causes. Use for a case whose check starts with INV-, or for invoices never sent to CFS, online banking invoices left unpaid, or duplicate invoice references."
+description: "Payments (sbc-pay) knowledge: how invoices are created and reach CFS (starting status per payment method, the nightly CFS invoice job for PAD, EFT, online banking and routing slips, invoice references), and its checks with their known causes. Use for a case on one of these checks, or for invoices never sent to CFS, or duplicate invoice references."
 ---
 
 # Invoice lifecycle (creation, CFS invoices, references)

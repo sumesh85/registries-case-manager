@@ -3,7 +3,6 @@ id: invoice-lifecycle
 title: Invoice lifecycle (creation, CFS invoices, references)
 domain: payments
 as_of: "2026-11-04"
-check_prefix: INV
 
 how_it_works: |
   A product (filing, search, etc.) creates an invoice through pay-api for the account's payment method.
@@ -16,7 +15,8 @@ how_it_works: |
     Each gets an ACTIVE reference to that one CFS invoice number, and the customer is emailed the total.
   - **EFT:** one CFS invoice per invoice, ACTIVE reference.
   - **Online banking:** one CFS invoice per CREATED invoice; the invoice becomes SETTLEMENT_SCHED until the
-    customer pays through their bank.
+    customer pays through their bank. There is no time limit: an unpaid one stays SETTLEMENT_SCHED, with
+    an open CFS invoice, until it is paid or staff cancel it (e.g. at the product's request).
   - **Routing slip:** a CFS invoice is created and the slip's receipt applied straight away; the invoice
     becomes PAID. Routing slip invoices with a refund requested are cancelled in CFS and become REFUNDED.
   The job skips an account whose CFS account isn't usable (PAD and EFT: anything but ACTIVE or INACTIVE,
@@ -30,15 +30,13 @@ how_it_works: |
   invoice is reversed or replaced (e.g. by a consolidated invoice after an NSF).
 
   Known quirks today:
-  - Online banking invoices nobody pays stay SETTLEMENT_SCHED, with an open CFS invoice, indefinitely.
-    Nothing expires them; they are cleaned up by script.
   - If CFS already has an invoice under the number with a different total, the job fails for that account
     every night until someone intervenes.
   - Code that expects one ACTIVE reference per invoice errors if there are two; with several COMPLETED
     references it uses the newest.
 
 checks:
-  - id: INV-01
+  - id: invoice-reaches-cfs
     title: Every invoice reaches CFS
     check: No PAD, EFT, online banking or routing slip invoice is still waiting for its CFS invoice (APPROVED or CREATED, no ACTIVE or COMPLETED reference) after the nightly job has run.
     why: CAS never bills the customer, and nothing can settle the invoice.
@@ -54,15 +52,7 @@ checks:
       - cause: "It is an express checkout invoice not yet claimed by an account (by design)."
         confirm: "An unclaimed express checkout link for the invoice."
 
-  - id: INV-02
-    title: Online banking invoices are paid or cancelled
-    check: No online banking invoice stays SETTLEMENT_SCHED with nothing paid in CFS.
-    why: The filing waits forever and CAS carries an open receivable; today they are found and cleaned up by script.
-    causes:
-      - cause: "The customer never paid."
-        confirm: "CFS amount_due on the invoice's CFS invoice equals its total."
-
-  - id: INV-03
+  - id: one-live-reference
     title: One live reference per invoice
     check: No invoice has more than one ACTIVE reference, or more than one non-consolidated COMPLETED reference.
     why: Settlement, refunds and payments can act on the wrong CFS invoice, or fail outright.

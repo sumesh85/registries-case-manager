@@ -3,7 +3,6 @@ id: nsf-handling
 title: NSF handling (PAD returns)
 domain: payments
 as_of: "2026-11-02"
-check_prefix: NSF
 
 how_it_works: |
   A returned PAD debit arrives as a settlement row (`PADR`/`PAYR`, or Not PAID; reason code e.g. 901
@@ -36,7 +35,7 @@ how_it_works: |
   - An invoice refunded for less than its total gets the full NSF treatment.
 
 checks:
-  - id: NSF-01
+  - id: one-nsf-per-number
     title: One NSF per CFS invoice number
     check: At most one NSF record per CFS invoice number.
     why: A customer charged two NSF fees for one returned debit.
@@ -44,7 +43,7 @@ checks:
       - cause: "The same returned debit arrived in two settlement files."
         confirm: "Identical reversal rows in two files for the number."
 
-  - id: NSF-02
+  - id: no-nsf-on-refunded-invoice
     title: No NSF on refunded invoices
     check: No NSF record on a CFS invoice number whose invoices were all refunded to credit memos that were unused when the return arrived.
     why: The customer is frozen and charged a fee although they were owed nothing.
@@ -54,7 +53,7 @@ checks:
       - cause: "The refund was partial, which today gets the full NSF treatment."
         confirm: "The invoice's refund is less than its total."
 
-  - id: NSF-03
+  - id: return-reverts-invoices
     title: Return reverts the invoices
     check: After a returned PAD debit, each affected invoice not refunded is unsettled with paid 0, unless a later payment settled it.
     within: P1D
@@ -63,12 +62,12 @@ checks:
       - cause: "The account was already frozen and an older pay-queue dropped the return."
         confirm: "The invoice is still PAID and the file was applied before the fix merged on 2026-10-27 was deployed."
 
-  - id: NSF-04
+  - id: one-fee-per-nsf
     title: One fee invoice per NSF
     check: Every NSF record has exactly one credit card fee invoice on the same CFS invoice number.
     why: Fee missing or charged twice.
 
-  - id: NSF-05
+  - id: pay-auth-lock-agree
     title: pay and auth agree on the lock
     check: has_nsf_invoices or has_overdue_invoices is set exactly when the auth org is NSF_SUSPENDED.
     why: A customer locked out after paying, or a locked account that auth shows as active.
@@ -82,7 +81,7 @@ checks:
       - cause: "The message is still in flight."
         confirm: "pay changed state within the last few minutes."
 
-  - id: NSF-06
+  - id: no-freeze-without-debt
     title: No account frozen with nothing owing
     check: No account has has_nsf_invoices set when CFS amount_due is 0 on every CFS invoice number with an NSF record for it.
     within: P1D
@@ -91,4 +90,4 @@ checks:
       - cause: "CAS reported the balance paid through a settlement row, which today never unlocks the account."
         confirm: "CFS amount_due 0 with no pay-api payment for the NSF balance."
       - cause: "The CC guard stopped the invoices from settling."
-        confirm: "SET-02 fails for the number."
+        confirm: "`cfs-paid-means-paydb-paid` fails for the number."
