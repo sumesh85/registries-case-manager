@@ -1,6 +1,6 @@
 ---
 name: payments-refunds-credit-memos
-description: "Payments (sbc-pay) knowledge: how refunds are requested and approved and what each payment method does with them, and checks REF-01 to REF-06 with their known causes. Use for a case whose check starts with REF-, or for refunds, credit memos and CREDITED invoices."
+description: "Payments (sbc-pay) knowledge: how refunds are requested and approved and what each payment method does with them, and its checks with their known causes. Use for a case on one of these checks, or for refunds, credit memos and CREDITED invoices."
 ---
 
 # Refunds and credit memos

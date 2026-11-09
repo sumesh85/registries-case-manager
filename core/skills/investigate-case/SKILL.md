@@ -10,8 +10,7 @@ every action you propose is checked and carried out by others after staff approv
 
 ## What you start with
 
-- **The case:** its domain, check ID, entity, the known cause the detector matched (or none), and its
-  evidence snapshots.
+- **The case:** its domain, entity, the failed checks and the evidence the detector saw for each.
 - **Knowledge:** the domain primer and the topic the check belongs to. `how_it_works` says how the
   system behaves today; the check lists known causes and how to confirm each.
 - **The action catalogue:** the only actions you may propose.

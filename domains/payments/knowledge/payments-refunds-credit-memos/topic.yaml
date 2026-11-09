@@ -3,7 +3,6 @@ id: refunds-credit-memos
 title: Refunds and credit memos
 domain: payments
 as_of: "2026-11-02"
-check_prefix: REF
 
 how_it_works: |
   Staff, or a product's system user, request a refund on one invoice: full, or partial by line (fee or
@@ -55,22 +54,22 @@ how_it_works: |
   - A card refund rejected by PayBC raises no alert beyond a log line and the stored error.
 
 checks:
-  - id: REF-01
+  - id: refund-within-charged
     title: Refund never exceeds what was charged
     check: An invoice's refund amount is not more than its total, and each partial refund line is not more than that line's fee or service fee.
     why: Money returned that was never paid.
 
-  - id: REF-02
+  - id: one-refund-per-invoice
     title: One refund per invoice
     check: Each invoice has at most one refund that is pending approval, approved or not requiring approval.
     why: A customer refunded twice.
 
-  - id: REF-03
+  - id: cm-refund-has-credit
     title: Every credit memo refund has its credit
     check: Every PAD, online banking or EFT invoice refunded to a credit memo has exactly one credits row created from it, for the refund amount.
     why: The customer's credit is missing in pay-db, so they can't use it and NSF handling can't see the refund.
 
-  - id: REF-04
+  - id: card-refund-completes
     title: Card refunds complete
     check: No DIRECT_PAY invoice stays REFUND_REQUESTED past the detector's threshold, and no refund has a stored PayBC error without staff follow-up.
     why: The customer is told they were refunded but the money never arrives.
@@ -80,12 +79,12 @@ checks:
       - cause: "PayBC hasn't paid the refund out yet."
         confirm: "No stored error, and PayBC shows the refund pending."
 
-  - id: REF-05
+  - id: refund-approved-by-other
     title: Approvals are made by someone else
     check: Every approved refund was decided by someone other than its requester, and none waits in PENDING_APPROVAL past the detector's threshold.
     why: Separation of duties broken, or customers waiting on a forgotten request.
 
-  - id: REF-06
+  - id: refund-state-consistent
     title: Refund state is consistent
     check: An invoice has refund_date set exactly when it is REFUNDED, CREDITED, CANCELLED or MANUALLY_REFUNDED, or PAID with a completed partial refund.
     why: Reports and the customer's transaction history show the wrong refund state.
