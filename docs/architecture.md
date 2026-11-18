@@ -1,41 +1,43 @@
 # registries-case-manager: Architecture diagram
 
-The main components and how a case flows through them. Details are in [design.md](design.md).
+The main components in the order a case meets them. Details are in [design.md](design.md).
 
 ```mermaid
-flowchart LR
-    SRC[("Domain systems")]
-    DET["Detectors"]
-    CASES[("Case store")]
-    AGENT["Agent"]
-    LLM["LLM"]
-    TOOLS["MCP tools<br/>(read-only)"]
+flowchart TB
+    SRC[("1. Domain systems")]
+    DET["2. Detectors"]
+    CASES[("3. Case store")]
+    AGENT["4. Agent"]
+    CHECK["5. Record checks"]
+    DASH["6. Staff dashboard"]
+    EXEC["7. Executor"]
+    LOG[("8. Decision log")]
+
     KNOW["Knowledge"]
-    CHECK["Record checks"]
-    DASH["Staff dashboard"]
-    EXEC["Executor"]
-    LOG[("Decision log")]
+    LLM["LLM"]
+    TOOLS["MCP tools (read-only)"]
 
     SRC -->|"read"| DET
-    DET -->|"open case"| CASES
-    CASES --> AGENT
-    KNOW --> AGENT
-    AGENT <--> LLM
-    AGENT <--> TOOLS
-    TOOLS -->|"read"| SRC
-    AGENT -->|"diagnosis + proposal"| CHECK
-    CHECK --> DASH
-    DASH -->|"approved"| EXEC
-    EXEC -->|"fix"| SRC
+    DET -->|"open a case"| CASES
+    CASES -->|"case to investigate"| AGENT
+    AGENT -->|"diagnosis + proposed fix"| CHECK
+    CHECK -->|"checked proposal"| DASH
+    DASH -->|"approved fix"| EXEC
+    EXEC -->|"apply fix"| SRC
+    EXEC -->|"every step recorded"| LOG
 
-    AGENT -.-> LOG
-    DASH -.-> LOG
-    EXEC -.-> LOG
+    KNOW --> AGENT
+    LLM <--> AGENT
+    TOOLS <--> AGENT
+    TOOLS -.->|"read"| SRC
 ```
 
-1. **Detectors** find something wrong and open a **case**.
-2. The **agent** investigates it, using the **LLM**, read-only **tools** and the domain's **knowledge**.
-3. **Record checks** make sure every claim is backed by evidence.
-4. **Staff** approve or reject the proposed fix on the **dashboard**.
-5. The **executor** applies approved fixes. It is the only part that writes.
-6. Every step is recorded in the **decision log**.
+1. **Domain systems** hold the data: databases, files and logs.
+2. **Detectors** read that data and find something wrong.
+3. The **case store** keeps one case per problem, with its evidence.
+4. The **agent** investigates the case. It uses the domain's **knowledge**, the **LLM**, and read-only
+   **MCP tools** to look at more data.
+5. **Record checks** make sure every claim in the diagnosis is backed by evidence.
+6. **Staff** approve or reject the proposed fix on the **dashboard**.
+7. The **executor** applies approved fixes. It is the only part that writes.
+8. The **decision log** records every step, from detection to fix.
