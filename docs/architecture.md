@@ -1,6 +1,5 @@
 # registries-case-manager: Architecture diagram
 
-The main components in the order a case meets them. Details are in [design.md](design.md).
 
 ```mermaid
 flowchart TB
