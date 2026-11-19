@@ -1,9 +1,9 @@
 ---
-name: payments-refunds-credit-memos
-description: "Payments (sbc-pay) knowledge: how refunds are requested and approved and what each payment method does with them, and its checks with their known causes. Use for a case on one of these checks, or for refunds, credit memos and CREDITED invoices."
+name: payments-settlement-reconciliation
+description: "Payments (sbc-pay) knowledge: how CAS AR settlement files are applied to pay-db, and its checks with their known causes. Use for a case on one of these checks, or when settlement rows, receipts or CFS paid amounts don't match pay-db."
 ---
 
-# Refunds and credit memos
+# Settlement reconciliation (CAS AR settlement files)
 
 Payments domain knowledge (sbc-pay). Read [topic.yaml](topic.yaml):
 

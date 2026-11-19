@@ -1,0 +1,77 @@
+# yaml-language-server: $schema=../../../../docs/schemas/knowledge-topic.schema.json
+id: settlement-reconciliation
+title: Settlement reconciliation (CAS AR settlement files)
+domain: payments
+as_of: "2026-11-02"
+
+how_it_works: |
+  CAS drops AR settlement CSVs into the settlement folder (`ar/`). pay-queue records each file in
+  `cas_settlements` (file name, `received_on`), applies it, and sets `processed_on` when done. A file name
+  already recorded is skipped.
+
+  Each row applies a source (PAD debit, credit memo, adjustment) to a target invoice (`INV`) on a CFS invoice
+  number, with the target's state afterwards: `Fully PAID`, `Partially PAID` or `Not PAID`. Rows are applied
+  one by one, each committed on its own; payment records for the whole file are created after the rows.
+
+  By record type:
+  - `PADP`/`PADR`/`PAYR` (PAD): Fully PAID settles every invoice with an ACTIVE reference on the CFS invoice
+    number: reference COMPLETED, invoice PAID, paid = total, one receipt each. A refunded (CREDITED)
+    invoice stays CREDITED. Not PAID, or a `PADR`/`PAYR` that isn't Fully PAID, is a returned debit and
+    goes to NSF handling.
+  - `CMAP` (credit memo applied): Fully PAID settles the invoices on the number; Partially PAID changes
+    nothing. It is also recorded in `applied_credits`, highest invoice ID on the number first, so after an
+    NSF it can land on the fee invoice.
+  - `ADJS` changes nothing in pay-db.
+
+  When a row changes nothing in pay-db:
+  - **Skipped with only a log line:** a Fully PAID row while a credit card invoice has an ACTIVE reference
+    on the number (after an NSF that raised a fee, the fee invoice does; an info log only); a returned
+    debit on a number that already has a FAILED payment or an NSF record; a returned debit on invoices all
+    refunded to unused credit memos; a Fully PAID row on a CREDITED invoice; a CMAP whose credit memo isn't
+    in pay-db.
+  - **Reported as a file error:** no invoice for the number, none or more than one reference on it, an
+    unexpected target status or type.
+  - **Stops the file part-way** (`processed_on` stays empty): the row's customer account doesn't match the
+    invoice's CFS account, or no payment account is found because the CFS account isn't ACTIVE, FREEZE or
+    INACTIVE. The rest of the file doesn't run, and the file is never retried because its name is already
+    recorded.
+
+checks:
+  - id: settlement-file-applied
+    title: Every settlement file is fully applied
+    check: Every file in ar/ has a cas_settlements row with processed_on set.
+    within: P1D
+    why: A missing or half-applied file means payments CAS has settled never reach pay-db.
+    causes:
+      - cause: "A row error stopped the file part-way."
+        confirm: "An error logged for one of the file's rows, and the rows after it have no effect in pay-db."
+      - cause: "A row's CFS account isn't ACTIVE, FREEZE or INACTIVE in pay-db (e.g. still PENDING_PAD_ACTIVATION), so no payment account is found and the row errors."
+        confirm: "The CFS account named in the failing row has another status in pay-db."
+      - cause: "The file is still being applied."
+        confirm: "received_on is recent."
+
+  - id: cfs-paid-means-paydb-paid
+    title: Paid in CFS means paid in pay-db
+    check: When CFS amount_due is 0 for a CFS invoice number, every invoice on it is PAID or CREDITED in pay-db.
+    within: P1D
+    why: The customer has paid but pay-db still shows money owing; accounts can stay frozen.
+    causes:
+      - id: cc-guard
+        cause: "A credit card invoice (usually the NSF fee) had an ACTIVE reference on the number when the Fully PAID row was applied, so nothing was settled."
+        confirm: "An invoice on the CFS invoice number with payment method CC and reference status ACTIVE at the time of the row."
+      - id: file-not-applied
+        cause: "The settlement file with the Fully PAID row wasn't fully applied."
+        confirm: "`settlement-file-applied` fails for that file."
+
+  - id: no-flip-flop
+    title: No settlement flip-flops
+    check: A CFS invoice number with a returned debit has, across the settlement files of the lookback window, no more than one return, and no PAD payment after a return.
+    lookback: P90D
+    why: Each flip can freeze or unfreeze the account, add an NSF fee, or leave pay-db disagreeing with CFS. A single return, repaid by credit card or not, is the normal NSF path (`return-reverts-invoices`).
+    causes:
+      - cause: "The same returned debit was delivered in two files."
+        confirm: "Two return rows for the number with the same application ID, or the same source and target transaction, in different files."
+      - cause: "A genuine second return, which pay-db ignores because the number already has a FAILED payment or an NSF record."
+        confirm: "A second return row with a different application ID, and no change in pay-db from it."
+      - cause: "A flip was dropped by a known quirk."
+        confirm: "`cfs-paid-means-paydb-paid` or `return-reverts-invoices` fails for the number."
